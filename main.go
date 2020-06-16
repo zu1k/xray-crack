@@ -13,8 +13,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"flag"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 )
@@ -71,9 +73,29 @@ xMNjyLp1b84s2VVXTpSFA7i6KEUhl4NjqhZTslJht5Dfiy2Mmvfk2so=
 	aesIv         = []byte{0x71, 0x0d, 0x23, 0x8a, 0x47, 0xf0, 0x2c, 0x74, 0x8d, 0x11, 0xd1, 0xed, 0x90, 0x6b, 0x4e, 0x1f}
 )
 
+var (
+	genLicense bool
+	crackXray  bool
+	xrayFile   string
+)
+
 func main() {
+	fmt.Println(`破解xray高级版证书，使用 -h 参数查看使用帮助`)
+
+	flag.BoolVar(&genLicense, "g", false, "生成一个永久license")
+	flag.StringVar(&xrayFile, "c", "", "替换xray程序内置公钥，需要指定xray程序文件路径")
+
+	flag.Parse()
+	if genLicense {
+		genNew()
+	}
+
+	if xrayFile != "" {
+		replacePublicKeyInXray(xrayFile)
+	}
+
 	//parseAlready("xray-license.lic")
-	genNew()
+	//genNew()
 }
 
 func parseAlready(licenseFile string) {
@@ -139,21 +161,21 @@ func parseAlready(licenseFile string) {
 }
 
 func genNew() {
-	validTime, err := time.Parse("2006-01-02 15:04:05", "2099-01-01 00:00:00")
+	validTime, err := time.Parse("2006-01-02 15:04:05", "2099-09-09 01:09:09")
 
 	license := License{
-		LicenseId:      "ee2bf288bbbe829be29a49830f2c38ec",
-		UserId:         "490517af5242801ed981b37ff6987c18",
-		UserName:       "zu1k",
+		LicenseId:      "00000000000000000000000000000000",
+		UserId:         "00000000000000000000000000000000",
+		UserName:       "Chinese",
 		Distribution:   "COMMUNITY-ADVANCED",
 		NotValidBefore: 1591891200,
 		NotValidAfter:  validTime.Unix(),
 	}
 
 	licensePlainJsonBytes, _ := json.Marshal(license)
-	licensePlainJson := string(licensePlainJsonBytes)
+	//licensePlainJson := string(licensePlainJsonBytes)
 
-	fmt.Println("明文license信息：", licensePlainJson)
+	//fmt.Println("明文license信息：", licensePlainJson)
 
 	// rsa sign
 	priKey := importPrivateKey(newPrivateKeyPem)
@@ -178,7 +200,23 @@ func genNew() {
 
 	// 增加前17个字节的不知道干啥用的信息
 	licenseText := base64.StdEncoding.EncodeToString(allBytes)
-	fmt.Println("你的新证书:\n", licenseText)
+	//fmt.Println("你的新证书:\n")
+	//fmt.Println(licenseText)
+
+	fileText := `# xray license
+# 需要重命名为 xray-license.lic 和 xray 可执行程序放在同一个文件夹中
+# user_name: Chinese
+# distribution: COMMUNITY-ADVANCED
+# 仅对修改后的xray有效
+
+
+` + licenseText + `
+`
+
+	err = ioutil.WriteFile("xray-license.lic", []byte(fileText), os.ModePerm)
+	if err == nil {
+		fmt.Println("证书已写入文件：xray-license.lic")
+	}
 }
 
 func Decrypt(decode_data []byte) ([]byte, error) {
@@ -239,4 +277,25 @@ func importPrivateKey(key string) *rsa.PrivateKey {
 		panic(err)
 	}
 	return privateKey
+}
+
+func replacePublicKeyInXray(filePath string) {
+	origin, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		panic(err)
+	}
+
+	//originPubKeyPem = strings.ReplaceAll(originPubKeyPem, "\r\n", "\n")
+	originPubKeyPemBytes := []byte(originPubKeyPem)
+	newPubKeyPemBytes := []byte(newPublicKeyPem)
+	//fmt.Printf("%x\n", originPubKeyPemBytes)
+
+	loc := bytes.Index(origin, originPubKeyPemBytes)
+	fmt.Println("public key index:", loc)
+
+	newFile := bytes.ReplaceAll(origin, originPubKeyPemBytes, newPubKeyPemBytes)
+	err = ioutil.WriteFile(filePath, newFile, os.ModePerm)
+	if err == nil {
+		fmt.Println("文件写入成功：", filePath)
+	}
 }
