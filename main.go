@@ -74,20 +74,33 @@ xMNjyLp1b84s2VVXTpSFA7i6KEUhl4NjqhZTslJht5Dfiy2Mmvfk2so=
 )
 
 var (
-	genLicense bool
-	crackXray  bool
-	xrayFile   string
+	licenseName   string
+	xrayFile      string
+	originLicense string
 )
 
 func main() {
-	fmt.Println(`破解xray高级版证书，使用 -h 参数查看使用帮助`)
+	fmt.Println(`破解xray高级版证书，使用 -h 参数查看使用帮助
+本工具有效期到 2021-01-01
+`)
+	validTime, _ := time.Parse("2006-01-02 15:04:05", "2021-01-01 00:00:00")
+	nowTime := time.Now()
+	if nowTime.After(validTime) {
+		panic("本工具已失效")
+	}
 
-	flag.BoolVar(&genLicense, "g", false, "生成一个永久license")
+	flag.StringVar(&licenseName, "g", "", "生成一个永久license，需要指定用户名")
 	flag.StringVar(&xrayFile, "c", "", "替换xray程序内置公钥，需要指定xray程序文件路径")
+	flag.StringVar(&originLicense, "p", "", "解析官方证书，需要指定证书路径")
 
 	flag.Parse()
-	if genLicense {
-		genNew()
+
+	if originLicense != "" {
+		parseAlready(originLicense)
+	}
+
+	if licenseName != "" {
+		genNew(licenseName)
 	}
 
 	if xrayFile != "" {
@@ -142,7 +155,7 @@ func parseAlready(licenseFile string) {
 	if err != nil {
 		panic(err)
 	}
-	//fmt.Println("license parsed:", license)
+	fmt.Println("license parsed:", license)
 
 	// rsa 验证签名 pss
 	sum := sha256.Sum256(licensePlainJsonBytes)
@@ -153,20 +166,20 @@ func parseAlready(licenseFile string) {
 
 	err = rsa.VerifyPSS(pubKey, crypto.SHA256, sum[:], aesDecData[2:0x102], nil)
 	if err != nil {
-		fmt.Println(err.Error())
+		//fmt.Println(err.Error())
 		//panic(err.Error())
 	} else {
 		fmt.Println("varify success")
 	}
 }
 
-func genNew() {
-	validTime, err := time.Parse("2006-01-02 15:04:05", "2099-09-09 01:09:09")
+func genNew(name string) {
+	validTime, err := time.Parse("2006-01-02 15:04:05", "2099-09-09 00:00:00")
 
 	license := License{
 		LicenseId:      "00000000000000000000000000000000",
 		UserId:         "00000000000000000000000000000000",
-		UserName:       "Chinese",
+		UserName:       name,
 		Distribution:   "COMMUNITY-ADVANCED",
 		NotValidBefore: 1591891200,
 		NotValidAfter:  validTime.Unix(),
