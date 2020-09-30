@@ -67,22 +67,17 @@ TnkR5ySAWynitSdjelsCtNZuD5VTjtm+i9cbt5v8SA1k5X9/MQc9jaGNTIuJW0mr
 Crds7fq96xVDVCvxJGYMKQzG61MBa+e1f8YSdhl5EY1IltlHkZstgts7avG6MP6A
 xMNjyLp1b84s2VVXTpSFA7i6KEUhl4NjqhZTslJht5Dfiy2Mmvfk2so=
 -----END RSA PRIVATE KEY-----`
-	pre2Bytes     = []byte{0x00, 0x01}
-	pre17Bytes, _ = hex.DecodeString("01710d238a47f02c748d11d1ed906b4e1f")
-	aesKey        = []byte{0x12, 0x23, 0x45, 0x56, 0x00, 0x87, 0x36, 0x93, 0x23, 0x86, 0x64, 0x76, 0x78, 0x67, 0x78, 0x00}
-	aesIv         = []byte{0x71, 0x0d, 0x23, 0x8a, 0x47, 0xf0, 0x2c, 0x74, 0x8d, 0x11, 0xd1, 0xed, 0x90, 0x6b, 0x4e, 0x1f}
+	licenseVersion2Byte = []byte{0x02}
+	pre2Bytes           = []byte{0x00, 0x01}
+	aesKeyNew, _        = hex.DecodeString("B293C506E0C7F60353C604961837B810")
 )
 
 var (
 	licenseName   string
-	xrayFile      string
 	originLicense string
 )
 
 func main() {
-	fmt.Println(`破解xray高级版证书，使用 -h 参数查看使用帮助
-本工具有效期到 2021-01-01
-`)
 	validTime, _ := time.Parse("2006-01-02 15:04:05", "2021-01-01 00:00:00")
 	nowTime := time.Now()
 	if nowTime.After(validTime) {
@@ -90,7 +85,6 @@ func main() {
 	}
 
 	flag.StringVar(&licenseName, "g", "", "生成一个永久license，需要指定用户名")
-	flag.StringVar(&xrayFile, "c", "", "替换xray程序内置公钥，需要指定xray程序文件路径")
 	flag.StringVar(&originLicense, "p", "", "解析官方证书，需要指定证书路径")
 
 	flag.Parse()
@@ -102,13 +96,6 @@ func main() {
 	if licenseName != "" {
 		genNew(licenseName)
 	}
-
-	if xrayFile != "" {
-		replacePublicKeyInXray(xrayFile)
-	}
-
-	//parseAlready("xray-license.lic")
-	//genNew()
 }
 
 func parseAlready(licenseFile string) {
@@ -130,25 +117,52 @@ func parseAlready(licenseFile string) {
 	}
 	//fmt.Println("your license:", licenseString)
 
-	decode_data, err := base64.StdEncoding.DecodeString(licenseString)
+	base64DecodeData, err := base64.StdEncoding.DecodeString(licenseString)
 	if err != nil {
 		panic(err)
 	}
-	//fmt.Printf("pre 17: %x\n", decode_data[:17])
+
+	//fmt.Println("base64 decode data:", hex.EncodeToString(base64DecodeData))
+
+	licenseVersion := base64DecodeData[0]
+	if licenseVersion == 2 {
+		fmt.Println("version ok: 2")
+	}
+
+	//fmt.Printf("pre 17: %x\n", base64DecodeData[:17])
 	//fmt.Printf("pre 17: %x\n", pre17Bytes)
+
+	//解密前有一个简单的变换处理
+	right := len(base64DecodeData) - 1
+	for l := 1; l < right; l++ {
+		r := right - l
+		if l >= r {
+			break
+		}
+		base64DecodeData[l], base64DecodeData[r] = base64DecodeData[r], base64DecodeData[l]
+	}
+	//fmt.Println("trans bytes:", hex.EncodeToString(base64DecodeData))
 
 	// aes解密license
 	// 总长度 487，前面17个字节是单独加上的，所以总共解密出 480个字节的数据
-	aesDecData, err := Decrypt(decode_data[17:])
+	aesDecData, err := Decrypt(base64DecodeData[17:], base64DecodeData[1:17])
 	if err != nil {
 		panic(err)
 	}
 	//fmt.Printf("AES DEC: %x\n", aesDecData)
 	//fmt.Println(string(aesDecData))
 
+	//另一个异或变换
+	for i := 0; i < len(aesDecData); i++ {
+		aesDecData[i] = aesDecData[i] ^ 0x44
+	}
+	//fmt.Println("trans 2 :", hex.EncodeToString(aesDecData))
+	//fmt.Println("trans 2 string:", string(aesDecData))
+
 	// 后半部分是明文的json
 	licensePlainJsonBytes := aesDecData[0x102:]
 	//fmt.Println("license info json:", string(licensePlainJsonBytes))
+	//fmt.Println("pre2bytes：", hex.EncodeToString(aesDecData[:0x2]))
 
 	license := License{}
 	err = json.Unmarshal([]byte(licensePlainJsonBytes), &license)
@@ -166,8 +180,7 @@ func parseAlready(licenseFile string) {
 
 	err = rsa.VerifyPSS(pubKey, crypto.SHA256, sum[:], aesDecData[2:0x102], nil)
 	if err != nil {
-		//fmt.Println(err.Error())
-		//panic(err.Error())
+		fmt.Println(err.Error())
 	} else {
 		fmt.Println("varify success")
 	}
@@ -187,12 +200,11 @@ func genNew(name string) {
 
 	licensePlainJsonBytes, _ := json.Marshal(license)
 	//licensePlainJson := string(licensePlainJsonBytes)
-
 	//fmt.Println("明文license信息：", licensePlainJson)
 
 	// rsa sign
 	priKey := importPrivateKey(newPrivateKeyPem)
-	//fmt.Println(priKey)
+
 	//sha256sum
 	sum := sha256.Sum256(licensePlainJsonBytes)
 	signature, err := rsa.SignPSS(rand.Reader, priKey, crypto.SHA256, sum[:], nil)
@@ -200,21 +212,38 @@ func genNew(name string) {
 		panic(err)
 	}
 
-	//fmt.Println("新签名", len(signature), signature)
-
 	licenseInfoWithSign := append(signature, licensePlainJsonBytes...)
-	aesEnc, err := Encrypt(append(pre2Bytes, licenseInfoWithSign...))
+	data2Enc := append(pre2Bytes, licenseInfoWithSign...)
+
+	// 加密前一次异或
+	for i := 0; i < len(data2Enc); i++ {
+		data2Enc[i] = data2Enc[i] ^ 0x44
+	}
+
+	// session iv
+	iv := make([]byte, 16)
+	_, _ = rand.Read(iv)
+	fmt.Println("temp aes iv:", hex.EncodeToString(iv))
+	aesEnc, err := Encrypt(data2Enc, iv)
 	if err != nil {
 		panic(err)
 	}
 	//fmt.Println(aesEnc)
 
-	allBytes := append(pre17Bytes, aesEnc...)
+	allBytes := append(iv, aesEnc...)
+	allBytes = append(licenseVersion2Byte, allBytes...)
 
-	// 增加前17个字节的不知道干啥用的信息
+	// 左右交换
+	right := len(allBytes) - 1
+	for l := 1; l < right; l++ {
+		r := right - l
+		if l >= r {
+			break
+		}
+		allBytes[l], allBytes[r] = allBytes[r], allBytes[l]
+	}
+
 	licenseText := base64.StdEncoding.EncodeToString(allBytes)
-	//fmt.Println("你的新证书:\n")
-	//fmt.Println(licenseText)
 
 	fileText := `# xray license
 # 需要重命名为 xray-license.lic 和 xray 可执行程序放在同一个文件夹中
@@ -232,26 +261,25 @@ func genNew(name string) {
 	}
 }
 
-func Decrypt(decode_data []byte) ([]byte, error) {
-	block, _ := aes.NewCipher(aesKey)
-	blockMode := cipher.NewCBCDecrypter(block, aesIv)
-	origin_data := make([]byte, len(decode_data))
-	blockMode.CryptBlocks(origin_data, decode_data)
+func Decrypt(decodeData []byte, iv []byte) ([]byte, error) {
+	block, _ := aes.NewCipher(aesKeyNew)
+	blockMode := cipher.NewCBCDecrypter(block, iv)
+	origin_data := make([]byte, len(decodeData))
+	blockMode.CryptBlocks(origin_data, decodeData)
 	return unpad(origin_data), nil
 }
 
 func unpad(ciphertext []byte) []byte {
 	length := len(ciphertext)
-	//去掉最后一次的padding
 	unpadding := int(ciphertext[length-1])
 	return ciphertext[:(length - unpadding)]
 }
 
-func Encrypt(text []byte) ([]byte, error) {
-	block, _ := aes.NewCipher(aesKey)
+func Encrypt(text []byte, iv []byte) ([]byte, error) {
+	block, _ := aes.NewCipher(aesKeyNew)
 	blockSize := block.BlockSize()
 	originData := pad(text, blockSize)
-	blockMode := cipher.NewCBCEncrypter(block, aesIv)
+	blockMode := cipher.NewCBCEncrypter(block, iv)
 	crypted := make([]byte, len(originData))
 	blockMode.CryptBlocks(crypted, originData)
 	//fmt.Println(len(originData))
@@ -290,25 +318,4 @@ func importPrivateKey(key string) *rsa.PrivateKey {
 		panic(err)
 	}
 	return privateKey
-}
-
-func replacePublicKeyInXray(filePath string) {
-	origin, err := ioutil.ReadFile(filePath)
-	if err != nil {
-		panic(err)
-	}
-
-	//originPubKeyPem = strings.ReplaceAll(originPubKeyPem, "\r\n", "\n")
-	originPubKeyPemBytes := []byte(originPubKeyPem)
-	newPubKeyPemBytes := []byte(newPublicKeyPem)
-	//fmt.Printf("%x\n", originPubKeyPemBytes)
-
-	loc := bytes.Index(origin, originPubKeyPemBytes)
-	fmt.Println("public key index:", loc)
-
-	newFile := bytes.ReplaceAll(origin, originPubKeyPemBytes, newPubKeyPemBytes)
-	err = ioutil.WriteFile(filePath, newFile, os.ModePerm)
-	if err == nil {
-		fmt.Println("文件写入成功：", filePath)
-	}
 }

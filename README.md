@@ -1,82 +1,49 @@
 # XRAY CRACKER
 
-> 支持到 1.2.0 版本，官方在 1.3.0 版本中更换了授权验证机制
-
-前几天长亭官方有个活动，可以领2个月的xray社区高级版证书，正好趁这个机会逆向分析了一下xray的证书算法，写了一个证书生成器
-
-因为xray证书用到了rsa算法，所以需要替换xray程序中的公钥，将该功能也集成在工具中了
-
-相关算法分析文章后面有空再写，这里先放出写好的工具
-
-## 工具使用
-
-### 查看帮助
-
-使用 `-h` 查看帮助
-
-```
-PS > .\xray-cracker -h
-破解xray高级版证书，使用 -h 参数查看使用帮助
-
-Usage of xray-cracker:
-  -c string
-        替换xray程序内置公钥，需要指定xray程序文件路径
-  -g string
-        生成一个永久license，需要指定用户名
-  -p string
-        解析官方证书，需要指定证书路径
-```
-
 ### 生成证书
 
 使用 `-g username` 生成永久证书
 
 ```
-PS > .\xray-cracker -g "我叫啥"
-破解xray高级版证书，使用 -h 参数查看使用帮助
+# ./xray-cracker -g kali
 
 证书已写入文件：xray-license.lic
 ```
 
-### 破解xray
+### 破解 xray
 
-使用 `-c path-to-xray` 修改xray内置公钥
+目前 PubKey 是加密过的，加密算法很简单，但是那个函数是硬编码了几百个局部变量，替换一波后，两个一对进行加、减、异或等操作进行还原，看样子是用代码生成的加密函数代码然后编译的，如果花时间在这上面可能是个死局，因为可以在每一次编译前都重新生成一下代码
 
-```
-PS > .\xray-cracker -c .\xray_windows_amd64.exe
-破解xray高级版证书，使用 -h 参数查看使用帮助
+所以我选择从其他地方入手，很明显公钥是用来验证签名的，如此看来直接修改签名验证函数的返回值就行，golang 中 VerifyPSS 返回一个 err，如果`err==nil`就代表签名没问题，放在汇编里就是 `test 某寄存器` 然后 `setz`或`setnz`，改一下就行
 
-public key index: 16741321
-文件写入成功： .\xray_windows_amd64.exe
-```
-
-> 工具虽然是windows平台下运行，但是照样可以破解其他平台xray  
-> 目前xray最新版是1.0.0，现在全平台全版本通杀
-
+我目前的能力还无法实现用程序对不同平台不同系统的二进制进行这个修改，还没学习怎么写，请大神们各显神通吧
 
 ## 破解效果
 
-使用修改版xray和永久证书后，效果如下
+使用修改版 xray 和永久证书后，效果如下
 
 ```
-PS > .\xray_windows_amd64.exe version
+# ./xray_linux_amd64 version
 
- __   __  _____              __     __
- \ \ / / |  __ \      /\     \ \   / /
-  \ V /  | |__) |    /  \     \ \_/ /
-   > <   |  _  /    / /\ \     \   /
-  / . \  | | \ \   / ____ \     | |
- /_/ \_\ |_|  \_\ /_/    \_\    |_|
+____  ___.________.    ____.   _____.___.
+\   \/  /\_   __   \  /  _  \  \__  |   |
+ \     /  |    _  _/ /  /_\  \  /   |   |
+ /     \  |    |   \/    |    \ \____   |
+\___/\  \ |____|   /\____|_   / / _____/
+      \_/       \_/        \_/  \/
 
+Version: 1.3.3/1d166d72/COMMUNITY-ADVANCED
+Licensed to kali, license is valid until 2099-09-08 19:00:00
 
-Version: 1.0.0/62161168/COMMUNITY-ADVANCED
-Licensed to 我叫啥, license is valid until 2099-09-09 08:00:00
-
-[xray 1.0.0/62161168]
-Build: [2020-06-13] [windows/amd64] [RELEASE/COMMUNITY-ADVANCED]
-Compiler Version: go version go1.14.1 linux/amd64
+[INFO] 2020-09-29 00:20:20 [default:entry.go:122] set file descriptor limit to 10000
+[INFO] 2020-09-29 00:20:20 [default:entry.go:157] loading config file from /home/kali/tools/scan/xray/config.yaml
+[xray 1.3.3/1d166d72]
+Build: [2020-09-17] [linux/amd64] [RELEASE/COMMUNITY-ADVANCED]
+Compiler Version: go version go1.14.4 linux/amd64
 License ID: 00000000000000000000000000000000
-User Name: 我叫啥/00000000000000000000000000000000
-Not Valid Before: 2020-06-12 00:00:00
-Not Valid After: 2099-09-09 08:00:00
+User Name: kali/00000000000000000000000000000000
+Not Valid Before: 2020-06-11 12:00:00
+Not Valid After: 2099-09-08 19:00:00
+
+To show open source licenses, please use `osslicense` sub-command.
 ```
