@@ -75,6 +75,7 @@ xMNjyLp1b84s2VVXTpSFA7i6KEUhl4NjqhZTslJht5Dfiy2Mmvfk2so=
 var (
 	licenseName   string
 	originLicense string
+	xrayPath      string
 )
 
 func main() {
@@ -86,6 +87,7 @@ func main() {
 
 	flag.StringVar(&licenseName, "g", "", "生成一个永久license，需要指定用户名")
 	flag.StringVar(&originLicense, "p", "", "解析官方证书，需要指定证书路径")
+	flag.StringVar(&xrayPath, "c", "", "patch xray，需要指定xray程序文件路径")
 
 	flag.Parse()
 
@@ -95,6 +97,48 @@ func main() {
 
 	if licenseName != "" {
 		genNew(licenseName)
+	}
+
+	if xrayPath != "" {
+		patchXray(xrayPath)
+	}
+}
+
+func patchXray(filePath string) {
+	var (
+		originBytes []byte
+		newBytes    []byte
+	)
+	origin, err := ioutil.ReadFile(filePath)
+	if err != nil {
+		panic(err)
+	}
+	//x86特征码: 0F 95 C0 83 F0 01 88 44 24 50 83 C4 30 C3
+	originX86Bytes := []byte{0x0F, 0x95, 0xC0, 0x83, 0xF0, 0x01, 0x88, 0x44, 0x24, 0x50, 0x83, 0xC4, 0x30, 0xC3}
+	newX86Bytes := []byte{0x0F, 0x94, 0xC0, 0x83, 0xF0, 0x01, 0x88, 0x44, 0x24, 0x50, 0x83, 0xC4, 0x30, 0xC3}
+	loc := bytes.LastIndex(origin, originX86Bytes)
+	//x64特征码: 0F 94 84 24 A8 00 00 00
+	if loc == -1 {
+		originX64Bytes := []byte{0x0F, 0x94, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00}
+		newX64Bytes := []byte{0x0F, 0x95, 0x84, 0x24, 0xA8, 0x00, 0x00, 0x00}
+		loc = bytes.LastIndex(origin, originX64Bytes)
+		if loc == -1 {
+			fmt.Println("Patch failed: maybe already patched.")
+			os.Exit(0)
+		}
+		originBytes = originX64Bytes
+		newBytes = newX64Bytes
+	} else {
+		originBytes = originX86Bytes
+		newBytes = newX86Bytes
+	}
+
+	fmt.Printf("Signature index: %#x\n", loc)
+
+	newFile := bytes.ReplaceAll(origin, originBytes, newBytes)
+	err = ioutil.WriteFile(filePath, newFile, os.ModePerm)
+	if err == nil {
+		fmt.Println("Patch success:", filePath)
 	}
 }
 
